@@ -7,6 +7,11 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from discord.ext import tasks
+
+AOE2_ROLE_NAMES = ["spy✪","農民","侍從","士兵","騎士",
+                       "子爵","伯爵","公爵","神級"]
+
+
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
 
@@ -29,6 +34,7 @@ class ProfileNotFound(Exception):
     """AoE2Insights 帳號不存在時丟出這個錯誤"""
     pass
 
+#查詢links.json裡面資料
 def load_links():
     if not os.path.exists(LINKS_FILE):
         return {}
@@ -64,15 +70,13 @@ def elo_to_role_name(elo: int) -> str:
         return "伯爵"
     elif elo <= 1900:
         return "公爵"
+    elif elo <= 2000:
+        return "神級"    
     else:
         return "spy✪"
 
 def extract_profile_id(text: str) -> str | None:
-    """
-    支援：
-    - 純 ID： 589368
-    - 網址： https://www.aoe2insights.com/user/589368/
-    """
+
     # 如果是網址，就用正則抓數字
     m = re.search(r"/user/(\d+)", text)
     if m:
@@ -94,7 +98,6 @@ def fetch_1v1_rm_rating(profile_id: str) -> int:
 
     # 其他不是 200 的狀況，也先當作錯誤丟出去
     resp.raise_for_status()
-
     soup = BeautifulSoup(resp.text, "html.parser")
 
     # 2) 頁面雖然不是 404，但內容是 "#not found"
@@ -117,6 +120,25 @@ def fetch_1v1_rm_rating(profile_id: str) -> int:
 
     return int(m.group(1))
 
+def verify_profile_exists(profile_id: str) -> bool:
+    url = f"https://www.aoe2insights.com/user/{profile_id}/"
+    resp = requests.get(url, timeout=10)
+
+    # 1) 確認 HTTP 404
+    if resp.status_code == 404:
+        return False
+
+    soup = BeautifulSoup(resp.text, "html.parser")
+
+    # 2) HTML 內文出現 #not found
+    not_found_title = soup.find(string=re.compile(r"#\s*not\s*found", re.IGNORECASE))
+    if not_found_title:
+        return False
+
+    # 3) 其他狀況視為存在
+    return True
+
+
 @bot.event #bot上線提示
 async def on_ready():
     print(f"✅ Bot 已上線：{bot.user} (ID: {bot.user.id})")
@@ -131,17 +153,15 @@ async def on_command_error(ctx, error):
         # 你也可以選擇在 DC 回一句「發生錯誤」
 
 @bot.command()
-async def ping(ctx):#輸入!ping 輸出pong！(from bot_Aoe2)
-    await ctx.send("pong！(from bot_Aoe2)")
-@bot.command()
-async def myid(ctx):#輸入!myid 輸出您discord ID
-    await ctx.send(f"你的 Discord ID 是 {ctx.author.id}")
-@bot.command()
-async def score(ctx, user: discord.Member | None = None):
-    """查 RM1v1 分數：!score 或 !score @某人"""
-    
-    # 1. 要查誰
-    target = user or ctx.author
+async def verify(ctx,profile:str): #!verify 網址
+    profile_id = extract_profile_id(profile)
+    exists = verify_profile_exists(profile_id)
+    if not exists:
+        await ctx.send("❌ 網址不存在, 請重新入一次!")
+        return
+    await ctx.send(f"✅ 網址存在!")
+
+async def update_one_user(ctx, target: discord.Member):
     discord_id = str(target.id)
     links = load_links()
 
@@ -175,6 +195,21 @@ async def score(ctx, user: discord.Member | None = None):
         await update_score(target, rating)
     except Exception as e:
         await ctx.send(f"⚠️ 更新身分組時發生錯誤：{e}")
+
+
+@bot.command()
+async def ping(ctx):#輸入!ping 輸出pong！(from bot_Aoe2)
+    await ctx.send("pong！(from bot_Aoe2)")
+@bot.command()
+async def myid(ctx):#輸入!myid 輸出您discord ID
+    await ctx.send(f"你的 Discord ID 是 {ctx.author.id}")
+
+@bot.command()
+async def score(ctx, user: discord.Member | None = None):
+    target = user or ctx.author
+    await update_one_user(ctx, target)
+
+
 @bot.command()
 async def link(ctx, profile: str):#使用者綁定 AoE2 帳號 輸入!link "url(aoe2insights)"
     """
@@ -183,8 +218,12 @@ async def link(ctx, profile: str):#使用者綁定 AoE2 帳號 輸入!link "url(
     !link https://www.aoe2insights.com/user/589368/
     """
     profile_id = extract_profile_id(profile)
+    exists = verify_profile_exists(profile_id)
+    if not exists:
+        await ctx.send("❌ 網址不存在 或是 格式錯誤, 請重新入一次! \n 正確範例：`!link 589368` 或 `!link https://www.aoe2insights.com/user/589368/`")
+        return
     if not profile_id:
-        await ctx.send("看不懂這個 AoE2Insights ID \n請用：`!link 589368` 或 `!link https://www.aoe2insights.com/user/589368/`")
+        await ctx.send("❌ 網址格式錯誤  \n 正確範例：`!link 589368` 或 `!link https://www.aoe2insights.com/user/589368/`")
         return
 
     links = load_links()
@@ -192,36 +231,28 @@ async def link(ctx, profile: str):#使用者綁定 AoE2 帳號 輸入!link "url(
 
     links[discord_id] = profile_id
     save_links(links)
-
+    await update_one_user(ctx, ctx.author)
     await ctx.send(f"已幫 <@{discord_id}> 綁定 AoE2Insights 帳號 ID！")
+    
 @bot.command()
 #依照分數自動更新該使用者的段位身分組
 async def update_score(member: discord.Member, elo: int):
-    role_name = elo_to_role_name(elo)
     guild = member.guild
+    new_role_name = elo_to_role_name(elo)
 
-    # 取得目標身分組
-    role = discord.utils.get(guild.roles, name=role_name)
+    # 目標段位角色
+    role = discord.utils.get(guild.roles, name=new_role_name)
     if role is None:
-        role = await guild.create_role(name=role_name)
+        role = await guild.create_role(name=new_role_name)
 
-    # 移除舊段位
-    AOE2_ROLE_NAMES = ["spy✪","農民","侍從","士兵","騎士",
-                       "子爵","伯爵","公爵","神級"]
-
+    # 移除舊 AoE2 段位
     old_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if old_roles:
-        try:
-            await member.remove_roles(*old_roles)
-        except Exception as e:
-            print("移除舊段位錯誤：", e)
+        await member.remove_roles(*old_roles)
 
-    # 新段位
-    try:
-        await member.add_roles(role)
-    except Exception as e:
-        print("新增段位錯誤：", e)
-
+    # 加上新段位
+    await member.add_roles(role)
+    
 @tasks.loop(minutes=60)
 async def auto_update_roles():
     print("⏳ 自動批次更新身分組中...")
@@ -251,21 +282,21 @@ async def adminlink(ctx, member: discord.Member, profile: str):
     !adminlink @某人 https://www.aoe2insights.com/user/589368/
     """
     profile_id = extract_profile_id(profile)
+    exists = verify_profile_exists(profile_id)
+    if not exists:
+        await ctx.send("❌ 網址不存在 或是 格式錯誤, 請重新入一次! \n 正確範例：`!link @Ray.bb 3493625` 或 `!link @Ray.bb https://www.aoe2insights.com/user/3493625/`")
+        return
     if not profile_id:
-        await ctx.send("看不懂這個 AoE2Insights ID，請確認網址或 ID。")
+        await ctx.send("❌ 網址格式錯誤  \n 正確範例：`!link @Ray.bb 3493625` 或 `!link @Ray.bb https://www.aoe2insights.com/user/3493625/`")
         return
 
     links = load_links()
     discord_id = str(member.id)
 
-    # 這下面跟你原本的綁定邏輯一樣，照你需要寫就好：
-    # 例如：覆蓋舊綁定、刪除舊主人、再綁新主人等等
-
     links[discord_id] = profile_id
     save_links(links)
-
+    await update_one_user(ctx,member)  
     await ctx.send(f"✅ 已幫 {member.mention} 綁定 AoE2Insights ID `{profile_id}`")
-
 
 #管理者幫忙刪除某個人 AoE2 帳號 輸入 !link @某個人 "url(aoe2insights)"
 @bot.command()
@@ -279,16 +310,14 @@ async def admindel(ctx, member: discord.Member):
         save_links(links)
 
     # 刪除段位角色
-    AOE2_ROLE_NAMES = ["spy✪","農民","侍從","士兵","騎士",
-                       "子爵","伯爵","公爵","神級"]
+
 
     remove_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if remove_roles:
         await member.remove_roles(*remove_roles)
 
     await ctx.send(f"🗑️ 已刪除 {member.mention} 的綁定與段位身分組。")
-
-
+    
 bot.run(TOKEN)
 
 

@@ -7,6 +7,7 @@ import discord
 from discord.ext import commands
 from dotenv import load_dotenv
 from discord.ext import tasks
+from discord.ext import commands
 
 AOE2_ROLE_NAMES = ["spy✪","農民","侍從","士兵","騎士",
                        "子爵","伯爵","公爵","神級"]
@@ -144,13 +145,33 @@ async def on_ready():
     print(f"✅ Bot 已上線：{bot.user} (ID: {bot.user.id})")
     auto_update_roles.start()
 
+@bot.event
 async def on_command_error(ctx, error):
+    # 少參數的情況（例如只打 !link）
+    if isinstance(error, commands.MissingRequiredArgument):
+        if ctx.command and ctx.command.name == "link":
+            await ctx.send("❌ 你少打參數了喔！\n歐乃該請使用以下正確用法：`!link 你的AoE2Insights網址或ID`")
+        elif ctx.command and ctx.command.name == "adminlink":
+            await ctx.send("❌ 你少打參數了喔！\n歐乃該請使用以下正確用法：`!adminlink @某人 他的AoE2Insights網址或ID`")
+        else:
+            await ctx.send("❌ 這個指令少了必要參數。")
+        return
+
+    # 權限不夠（例如不是 BOSS 在用 adminlink）
     if isinstance(error, commands.CheckFailure):
-        await ctx.send("這個指令只有管理員（BOSS）可以用")
-    else:
-        # 其他錯誤先印出來 debug
-        print("Command error:", repr(error))
-        # 你也可以選擇在 DC 回一句「發生錯誤」
+        await ctx.send("這個指令只有某些人才可以用!")
+        return
+
+    # 指令不存在（打錯字的 !scroe 之類）
+    if isinstance(error, commands.CommandNotFound):
+        # 想安靜忽略就 pass，不想洗頻道
+        return
+
+    # 其他沒預期到的錯誤 → 先印出來方便 debug，再給一個通用訊息
+    print("Command error:", repr(error))
+    await ctx.send("⚠️ 指令執行時發生錯誤，請稍後再試或找 Tank20089 QQ")
+
+
 
 @bot.command()
 async def verify(ctx,profile:str): #!verify 網址

@@ -171,8 +171,6 @@ async def on_command_error(ctx, error):
     print("Command error:", repr(error))
     await ctx.send("⚠️ 指令執行時發生錯誤，請稍後再試或找 Tank20089 QQ")
 
-
-
 @bot.command()
 async def verify(ctx,profile:str): #!verify 網址
     profile_id = extract_profile_id(profile)

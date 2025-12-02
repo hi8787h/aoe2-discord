@@ -9,9 +9,6 @@ from dotenv import load_dotenv
 from discord.ext import tasks
 from discord.ext import commands
 
-AOE2_ROLE_NAMES = ["spy✪","農民","侍從","士兵","騎士",
-                       "子爵","伯爵","公爵","神級"]
-
 
 load_dotenv()
 TOKEN = os.getenv("DISCORD_TOKEN")
@@ -54,27 +51,18 @@ def save_links(data):
     with open(LINKS_FILE, "w", encoding="utf-8") as f:
         json.dump(data, f, ensure_ascii=False, indent=2)
 
+with open("elo_roles.json", "r", encoding="utf-8") as f:
+    ELO_RULES = {int(k): v for k, v in json.load(f).items()}  # key 轉成 int 方便比較
+# AoE2 段位角色名稱清單（用來判斷哪些要移除）
+AOE2_ROLE_NAMES = list(dict.fromkeys(ELO_RULES.values()))
+
 def elo_to_role_name(elo: int) -> str:
-    if elo < 999:
-        return "spy✪"
-    elif elo <= 1000:
-        return "農民"
-    elif elo <= 1200:
-        return "侍從"
-    elif elo <= 1400:
-        return "士兵"
-    elif elo <= 1600:
-        return "騎士"
-    elif elo <= 1700:
-        return "子爵"
-    elif elo <= 1800:
-        return "伯爵"
-    elif elo <= 1900:
-        return "公爵"
-    elif elo <= 2000:
-        return "神級"    
-    else:
-        return "spy✪"
+    # 按照門檻從小到大掃
+    for limit, role in sorted(ELO_RULES.items()):
+        if elo <= limit:
+            return role
+    # 如果超過最大值，就給最高段位
+    return list(ELO_RULES.values())[-1]
 
 def extract_profile_id(text: str) -> str | None:
 
@@ -186,22 +174,20 @@ async def verify(ctx,profile:str): #!verify 網址
         return
     await ctx.send(f"✅ 網址存在!")
 
-async def update_one_user(ctx, target: discord.Member):
-    discord_id = str(target.id)
+async def update_one_user(ctx: commands.Context, member: discord.Member):
+    """抓該 member 的 AoE2Insights 分數，並更新段位。"""
+
     links = load_links()
+    discord_id = str(member.id)
 
     if discord_id not in links:
-        await ctx.send(
-            f"{target.mention} 還沒有綁定 AoE2Insights！\n"
-            "請先使用：`!link 你的網址或ID`"
-        )
+        await ctx.send(f"{member.mention} 還沒有綁定 AoE2Insights 帳號。")
         return
 
     profile_id = links[discord_id]
 
-    # 2. 抓 AoE2Insights 分數
     try:
-        rating = fetch_1v1_rm_rating(profile_id)
+        elo = fetch_1v1_rm_rating(profile_id)
     except ProfileNotFound:
         await ctx.send(f"❌ 查無此玩家（AoE2Insights 顯示不存在）ID = `{profile_id}`")
         return
@@ -212,15 +198,11 @@ async def update_one_user(ctx, target: discord.Member):
         await ctx.send(f"⚠️ 抓取資料時發生未知錯誤：{e}")
         return
 
-    # 3. 顯示分數
-    await ctx.send(f"🎯 **{target.display_name} 的 1v1 RM 分數是：`{rating}`**")
-
-    # 4. 更新段位
-    try:
-        await update_score(target, rating)
-    except Exception as e:
-        await ctx.send(f"⚠️ 更新身分組時發生錯誤：{e}")
-
+    await update_score(member, elo)
+    await ctx.send(
+        f"🎯 **{member.display_name} 的 1v1 RM 分數是：`{elo}`**，"
+        f"目前段位：`{elo_to_role_name(elo)}`"
+    )
 
 @bot.command()
 async def ping(ctx):#輸入!ping 輸出pong！(from bot_Aoe2)
@@ -309,10 +291,10 @@ async def adminlink(ctx, member: discord.Member, profile: str):
     profile_id = extract_profile_id(profile)
     exists = verify_profile_exists(profile_id)
     if not exists:
-        await ctx.send("❌ 網址不存在 或是 格式錯誤, 請重新入一次! \n 正確範例：`!link @Ray.bb 3493625` 或 `!link @Ray.bb https://www.aoe2insights.com/user/3493625/`")
+        await ctx.send("❌ 網址不存在 或是 格式錯誤, 請重新入一次! \n 正確範例：`!adminlink @Ray.bb 3493625` 或 `!adminlink @Ray.bb https://www.aoe2insights.com/user/3493625/`")
         return
     if not profile_id:
-        await ctx.send("❌ 網址格式錯誤  \n 正確範例：`!link @Ray.bb 3493625` 或 `!link @Ray.bb https://www.aoe2insights.com/user/3493625/`")
+        await ctx.send("❌ 網址格式錯誤  \n 正確範例：`!adminlink @Ray.bb 3493625` 或 `!adminlink @Ray.bb https://www.aoe2insights.com/user/3493625/`")
         return
 
     links = load_links()
@@ -335,7 +317,6 @@ async def admindel(ctx, member: discord.Member):
         save_links(links)
 
     # 刪除段位角色
-
 
     remove_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if remove_roles:

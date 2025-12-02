@@ -143,7 +143,13 @@ def verify_profile_exists(profile_id: str) -> bool:
 @bot.event #bot上線提示
 async def on_ready():
     print(f"✅ Bot 已上線：{bot.user} (ID: {bot.user.id})")
-    auto_update_roles.start()
+
+    # 只在「尚未啟動」時呼叫 start()
+    if not auto_update_roles.is_running():
+        auto_update_roles.start()
+        print("⏳ 自動批次更新身分組任務啟動")
+    else:
+        print("⏳ 自動批次更新身分組任務已在執行中)")
 
 @bot.event
 async def on_command_error(ctx, error):

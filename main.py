@@ -52,7 +52,7 @@ def save_links(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 with open("elo_roles.json", "r", encoding="utf-8") as f:
-    ELO_RULES = {int(k): v for k, v in json.load(f).items()}  # key 轉成 int 方便比較
+    ELO_RULES = {int(k): v for k, v in json.load(f).items()}  # key 轉成 int 方便比較 #快速寫法的建字典
 # AoE2 段位角色名稱清單（用來判斷哪些要移除）
 AOE2_ROLE_NAMES = list(dict.fromkeys(ELO_RULES.values()))
 
@@ -248,11 +248,11 @@ async def update_score(member: discord.Member, elo: int):
     new_role_name = elo_to_role_name(elo)
 
     # 目標段位角色
-    role = discord.utils.get(guild.roles, name=new_role_name)
+    role = discord.utils.get(guild.roles, name=new_role_name)#查詢ele_roles.json所有的身分組
     if role is None:
         role = await guild.create_role(name=new_role_name)
 
-    # 移除舊 AoE2 段位
+    # 移除舊 AoE2 段位 從 member.roles 裡找出所有 名稱在 AOE2_ROLE_NAMES 裡的角色 r，變成一個列表
     old_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if old_roles:
         await member.remove_roles(*old_roles)
@@ -317,6 +317,7 @@ async def admindel(ctx, member: discord.Member):
         save_links(links)
 
     # 刪除段位角色
+
 
     remove_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if remove_roles:

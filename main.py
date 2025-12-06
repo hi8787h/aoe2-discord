@@ -201,7 +201,7 @@ async def update_one_user(ctx: commands.Context, member: discord.Member):
     await update_score(member, elo)
     await ctx.send(
         f"🎯 **{member.display_name} 的 1v1 RM 分數是：`{elo}`**，"
-        f"目前段位：`{elo_to_role_name(elo)}`"
+        f"目前段位：{elo_to_role_name(elo)}"
     )
 
 @bot.command()

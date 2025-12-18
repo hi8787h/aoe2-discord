@@ -52,20 +52,19 @@ def save_links(data):
         json.dump(data, f, ensure_ascii=False, indent=2)
 
 with open("elo_roles.json", "r", encoding="utf-8") as f:
-    ELO_RULES = {int(k): v for k, v in json.load(f).items()}  # key 轉成 int 方便比較 #快速寫法的建字典
-# AoE2 段位角色名稱清單（用來判斷哪些要移除）
-AOE2_ROLE_NAMES = list(dict.fromkeys(ELO_RULES.values()))
+    ELO_RULES = json.load(f)
 
-def elo_to_role_name(elo: int) -> str:
-    # 按照門檻從小到大掃
-    for limit, role in sorted(ELO_RULES.items()):
-        if elo <= limit:
-            return role
-    # 如果超過最大值，就給最高段位
+
+# AoE2 段位角色名稱清單（用來判斷哪些要移除）
+AOE2_ROLE_NAMES = [v["role"] for v in ELO_RULES.values()]
+
+def elo_to_role_data(elo: int) -> dict: # 回傳使用者分數 elo_to_role_data(1v1天梯分數)
+    for limit_str, data in sorted(ELO_RULES.items(), key=lambda x: int(x[0])):
+        if elo <= int(limit_str):
+            return data
     return list(ELO_RULES.values())[-1]
 
 def extract_profile_id(text: str) -> str | None:
-
     # 如果是網址，就用正則抓數字
     m = re.search(r"/user/(\d+)", text)
     if m:
@@ -201,7 +200,7 @@ async def update_one_user(ctx: commands.Context, member: discord.Member):
     await update_score(member, elo)
     await ctx.send(
         f"🎯 **{member.display_name} 的 1v1 RM 分數是：`{elo}`**，"
-        f"目前段位：{elo_to_role_name(elo)}"
+        f"目前段位：{elo_to_role_data(elo)['role']} 獎牌: {elo_to_role_data(elo)['emoji']}"
     )
 
 @bot.command()
@@ -245,20 +244,24 @@ async def link(ctx, profile: str):#使用者綁定 AoE2 帳號 輸入!link "url(
 #依照分數自動更新該使用者的段位身分組
 async def update_score(member: discord.Member, elo: int):
     guild = member.guild
-    new_role_name = elo_to_role_name(elo)
 
-    # 目標段位角色
-    role = discord.utils.get(guild.roles, name=new_role_name)#查詢ele_roles.json所有的身分組
+    role_data = elo_to_role_data(elo)
+    role_name = role_data["role"]
+    emoji = role_data["emoji"]
+
+    # ✅ 用 role_name（字串）
+    role = discord.utils.get(guild.roles, name=role_name)
     if role is None:
-        role = await guild.create_role(name=new_role_name)
+        role = await guild.create_role(name=role_name)
 
-    # 移除舊 AoE2 段位 從 member.roles 裡找出所有 名稱在 AOE2_ROLE_NAMES 裡的角色 r，變成一個列表
+    # 移除舊 AoE2 段位
     old_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if old_roles:
         await member.remove_roles(*old_roles)
 
     # 加上新段位
     await member.add_roles(role)
+
     
 @tasks.loop(minutes=60)
 async def auto_update_roles():
@@ -317,7 +320,6 @@ async def admindel(ctx, member: discord.Member):
         save_links(links)
 
     # 刪除段位角色
-
 
     remove_roles = [r for r in member.roles if r.name in AOE2_ROLE_NAMES]
     if remove_roles:

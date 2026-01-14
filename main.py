@@ -1,6 +1,7 @@
 import os
 import json
 import re
+import difflib
 import requests
 from bs4 import BeautifulSoup
 import discord
@@ -24,7 +25,11 @@ BOSS_IDS = {
 intents = discord.Intents.default()
 intents.message_content = True
 
-bot = commands.Bot(command_prefix="!", intents=intents)
+bot = commands.Bot(
+    command_prefix="!",
+    intents=intents,
+    case_insensitive=True
+)
 
 LINKS_FILE = "links.json"
 
@@ -137,6 +142,37 @@ async def on_ready():
         print("⏳ 自動批次更新身分組任務啟動")
     else:
         print("⏳ 自動批次更新身分組任務已在執行中)")
+@bot.event
+async def on_message(message: discord.Message):
+    if message.author.bot:
+        return
+
+    prefix = "!"
+    if not message.content.startswith(prefix):
+        await bot.process_commands(message)
+        return
+
+    # 取出指令名稱（!score 的 score）
+    parts = message.content[len(prefix):].split(maxsplit=1)
+    cmd_name = parts[0].lower()
+    rest = parts[1] if len(parts) > 1 else ""
+
+    # 如果本來就是合法指令，照常處理
+    if bot.get_command(cmd_name):
+        await bot.process_commands(message)
+        return
+
+    # 所有可用指令名
+    all_cmds = [c.name for c in bot.commands]
+
+    # 找最像的指令
+    best = difflib.get_close_matches(cmd_name, all_cmds, n=1, cutoff=0.75)
+    if best:
+        fixed = best[0]
+        # 重新組成訊息，讓 discord.py 去走正常 command flow
+        message.content = f"{prefix}{fixed} {rest}".rstrip()
+
+    await bot.process_commands(message)
 
 @bot.event
 async def on_command_error(ctx, error):
@@ -200,7 +236,7 @@ async def update_one_user(ctx: commands.Context, member: discord.Member):
     await update_score(member, elo)
     await ctx.send(
         f"🎯 **{member.display_name} 的 1v1 RM 分數是：`{elo}`**，"
-        f"目前段位：{elo_to_role_data(elo)['role']} 獎牌: {elo_to_role_data(elo)['emoji']}"
+        f"目前公民階級：{elo_to_role_data(elo)['role']} 獎牌: {elo_to_role_data(elo)['emoji']} \n 公民階級說明: https://discord.com/channels/1442852747924738065/1459806869039353908"
     )
 
 @bot.command()
@@ -306,7 +342,7 @@ async def adminlink(ctx, member: discord.Member, profile: str):
     links[discord_id] = profile_id
     save_links(links)
     await update_one_user(ctx,member)  
-    await ctx.send(f"✅ 已幫 {member.mention} 綁定 AoE2Insights ID `{profile_id}`")
+    await ctx.send(f"✅ 已幫 {member.mention} 公民 綁定 AoE2Insights ID `{profile_id}`")
 
 #管理者幫忙刪除某個人 AoE2 帳號 輸入 !link @某個人 "url(aoe2insights)"
 @bot.command()
@@ -325,7 +361,7 @@ async def admindel(ctx, member: discord.Member):
     if remove_roles:
         await member.remove_roles(*remove_roles)
 
-    await ctx.send(f"🗑️ 已刪除 {member.mention} 的綁定與段位身分組。")
+    await ctx.send(f"🗑️ 已刪除 {member.mention} 的綁定的公民階級。")
     
 bot.run(TOKEN)
 

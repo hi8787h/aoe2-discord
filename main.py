@@ -209,6 +209,10 @@ async def verify(ctx,profile:str): #!verify 網址
         return
     await ctx.send(f"✅ 網址存在!")
 
+@bot.command(name="29小少少",aliases=["29少爺"])
+async def small29(ctx): 
+    await ctx.send(f"少爺真的太29了\n 小少少的yt:https://www.youtube.com/@ares_dai66")
+
 async def update_one_user(ctx: commands.Context, member: discord.Member):
     """抓該 member 的 AoE2Insights 分數，並更新段位。"""
 
